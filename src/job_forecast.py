@@ -1,8 +1,11 @@
 import os
 import sys
 import logging
-from dotenv import load_dotenv
 
+# Add the parent directory (project root) to sys.path so we can import 'src'
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from dotenv import load_dotenv
 from src.data_fetcher import fetch_all_data, preprocess_data
 from src.model import GoldForecastModel, generate_insights
 from src.alerter import format_alert_message, send_telegram_alert
