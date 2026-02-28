@@ -2,9 +2,8 @@ name: Daily Gold Forecast
 
 on:
   schedule:
-    # This runs at 08:00 UTC every day. 
-    # (Adjust the hour depending on your local time zone vs UTC)
-    - cron: '0 8 * * *'
+    # This runs 4 times a day (06:00, 10:00, 14:00, 19:00 UTC) which roughly corresponds to 8am, 12pm, 4pm, 9pm local time (+02:00)
+    - cron: '0 6,10,14,19 * * *'
   
   # This allows you to run the workflow manually from the GitHub website for testing
   workflow_dispatch:
@@ -28,9 +27,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run forecast script
+      - name: Run scheduled forecast script
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python main.py
+          # Use the one-shot job instead of the interactive bot
+          python src/job_forecast.py
