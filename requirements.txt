@@ -5,3 +5,7 @@ python-dotenv
 requests
 scikit-learn
 pandas-ta
+matplotlib
+seaborn
+nltk
+python-telegram-bot

@@ -17,6 +17,8 @@ class GoldForecastModel:
             changepoint_prior_scale=changepoint_prior_scale,
             seasonality_prior_scale=seasonality_prior_scale
         )
+        self.model.add_regressor('USD_Index')
+        self.model.add_regressor('Treasury_Yield')
         self.is_fitted = False
         
     def fit(self, df: pd.DataFrame):
@@ -31,11 +33,12 @@ class GoldForecastModel:
         self.is_fitted = True
         logger.info("Model fitting complete.")
         
-    def predict(self, days_ahead: int = 30) -> pd.DataFrame:
+    def predict(self, historical_df: pd.DataFrame, days_ahead: int = 30) -> pd.DataFrame:
         """
-        Generates predictions for future dates.
+        Generates predictions for future dates, using the last known values for regressors.
         
         Args:
+            historical_df (pd.DataFrame): The dataframe containing historical regressors.
             days_ahead (int): Number of days to forecast into the future.
             
         Returns:
@@ -46,6 +49,22 @@ class GoldForecastModel:
             
         logger.info(f"Generating forecast for {days_ahead} days ahead...")
         future = self.model.make_future_dataframe(periods=days_ahead)
+        
+        # Prophet requires future values for regressors. 
+        # For our 30-day forecast, we will naively assume the USD Index and Treasury Yield
+        # remain exactly what they were on the last available day of historical data.
+        last_usd = historical_df.iloc[-1]['USD_Index']
+        last_tnx = historical_df.iloc[-1]['Treasury_Yield']
+        
+        future['USD_Index'] = last_usd
+        future['Treasury_Yield'] = last_tnx
+        
+        # Override the historical part of the future dataframe with actual historical regressor values
+        # so the model fits the past correctly when plotting
+        future_merged = pd.merge(future, historical_df[['ds', 'USD_Index', 'Treasury_Yield']], on='ds', how='left')
+        future['USD_Index'] = future_merged['USD_Index_y'].fillna(last_usd)
+        future['Treasury_Yield'] = future_merged['Treasury_Yield_y'].fillna(last_tnx)
+
         forecast = self.model.predict(future)
         return forecast
 
