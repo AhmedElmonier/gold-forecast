@@ -1,0 +1,7 @@
+yfinance==1.2.0
+prophet
+pandas
+python-dotenv
+requests
+scikit-learn
+pandas-ta
