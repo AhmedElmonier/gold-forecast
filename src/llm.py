@@ -23,7 +23,8 @@ def generate_daily_brief(ticker: str, current_price: float, forecast_data: dict,
         prompt = f"""
         You are an expert financial analyst writing a concise, engaging daily brief for a Telegram trading channel.
         Write a summary analyzing the current state of {ticker}. 
-        Keep it under 200 words. Use formatting like bolding and bullet points where appropriate, and a few relevant emojis.
+        Keep it under 200 words. Use HTML formatting like <b>bolding</b> where appropriate, and a few relevant emojis. 
+        DO NOT use any Markdown syntax like asterisks (**) or underscores (_). Use plain text bullet points (•) instead of dashes.
         
         Here is the latest data to base your analysis on:
         - Current Price: ${current_price:.2f}

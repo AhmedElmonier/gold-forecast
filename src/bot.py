@@ -325,7 +325,7 @@ async def brief_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             correlation_data=correlations
         )
         
-        await update.message.reply_text(brief_text, parse_mode="Markdown")
+        await update.message.reply_text(brief_text, parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Error in /brief command: {e}")
