@@ -12,31 +12,62 @@ except Exception as e:
     logger.error(f"Failed to initialize FinBERT: {e}")
     sentiment_pipeline = None
 
-def analyze_gold_headlines() -> dict:
+import feedparser
+
+def fetch_broad_market_news(limit: int = 15) -> list:
     """
-    Fetches the latest news headlines for Gold from Yahoo Finance
-    and calculates an average sentiment score using FinBERT.
+    Fetches news from broader economic/geopolitical RSS feeds.
+    """
+    rss_urls = [
+        "https://finance.yahoo.com/news/rssindex",
+        "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000664" # CNBC Finance
+    ]
     
-    Returns:
-        dict: Containing 'score' (mapped roughly to -1 to 1), 'label' (String), and 'article_count'.
+    articles = []
+    
+    for url in rss_urls:
+        try:
+            feed = feedparser.parse(url)
+            for entry in feed.entries:
+                articles.append({
+                    "title": entry.title,
+                    "link": entry.link
+                })
+        except Exception as e:
+            logger.warning(f"Failed to fetch RSS feed {url}: {e}")
+            
+    # Remove duplicates
+    unique_articles = {article["title"]: article for article in articles}.values()
+    return list(unique_articles)[:limit]
+
+def analyze_headlines(ticker: str = "GC=F") -> dict:
     """
-    logger.info("Fetching latest news headlines for Gold (GC=F)...")
+    Fetches the latest news headlines and calculates an average sentiment score using FinBERT.
+    For Gold (GC=F), intertwines broad economic news.
+    """
+    logger.info(f"Fetching latest news headlines for {ticker}...")
     if not sentiment_pipeline:
         return {"score": 0.0, "label": "Model Error", "article_count": 0}
         
     try:
-        gold = yf.Ticker("GC=F")
-        news = gold.news
+        asset = yf.Ticker(ticker)
+        news = asset.news or []
         
-        if not news:
-            logger.warning("No recent news found for Gold.")
+        articles = [{"title": a.get("title", ""), "link": a.get("link", "")} for a in news if a.get("title")]
+        
+        if ticker in ["GC=F", "SI=F"]:
+            logger.info("Adding broader economic context for precious metals...")
+            articles.extend(fetch_broad_market_news(limit=10))
+            
+        if not articles:
+            logger.warning(f"No recent news found for {ticker}.")
             return {"score": 0.0, "label": "No Data", "article_count": 0}
             
         total_score = 0
         valid_articles = 0
         
-        for article in news:
-            title = article.get('title', '')
+        for article in articles:
+            title = article['title']
             if title:
                 # FinBERT returns e.g. [{'label': 'positive', 'score': 0.85}]
                 result = sentiment_pipeline(title)[0]
@@ -73,34 +104,35 @@ def analyze_gold_headlines() -> dict:
         logger.error(f"Error fetching/analyzing news sentiment: {e}")
         return {"score": 0.0, "label": "Error", "article_count": 0}
 
-def get_detailed_news_sentiment(limit: int = 5) -> dict:
+def get_detailed_news_sentiment(ticker: str = "GC=F", limit: int = 5) -> dict:
     """
-    Fetches the latest news headlines for Gold from Yahoo Finance
-    and calculates sentiment score using FinBERT for each article.
-    
-    Returns:
-        dict: Containing 'overall_score', 'overall_label', 'article_count', and a list of 'articles'
-              each with 'title', 'link', 'score', and 'label'.
+    Fetches the latest news headlines and calculates sentiment score using FinBERT for each article.
     """
-    logger.info(f"Fetching latest {limit} news headlines for Gold (GC=F)...")
+    logger.info(f"Fetching latest {limit} news headlines for {ticker}...")
     if not sentiment_pipeline:
         return {"overall_score": 0.0, "overall_label": "Model Error", "article_count": 0, "articles": []}
 
     try:
-        gold = yf.Ticker("GC=F")
-        news = gold.news
+        asset = yf.Ticker(ticker)
+        news = asset.news or []
         
-        if not news:
-            logger.warning("No recent news found for Gold.")
+        articles = [{"title": a.get("title", ""), "link": a.get("link", "")} for a in news if a.get("title")]
+        
+        if ticker in ["GC=F", "SI=F"]:
+            articles.extend(fetch_broad_market_news(limit=10))
+            
+        if not articles:
+            logger.warning(f"No recent news found for {ticker}.")
             return {"overall_score": 0.0, "overall_label": "No Data", "article_count": 0, "articles": []}
             
         total_score = 0
         valid_articles = 0
         detailed_articles = []
         
-        for article in news[:limit]:
-            title = article.get('title', '')
-            link = article.get('link', '')
+        # We only want to detail 'limit' articles to not spam the user
+        for article in articles[:limit]:
+            title = article['title']
+            link = article['link']
             if title:
                 result = sentiment_pipeline(title)[0]
                 label_txt = result['label']

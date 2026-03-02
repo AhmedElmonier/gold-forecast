@@ -10,7 +10,7 @@ from src.data_fetcher import fetch_all_data, preprocess_data
 from src.model import GoldForecastModel, XGBoostForecaster, generate_insights
 from src.alerter import format_alert_message, send_telegram_alert
 from src.charting import generate_forecast_chart
-from src.sentiment import analyze_gold_headlines
+from src.sentiment import analyze_headlines
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)

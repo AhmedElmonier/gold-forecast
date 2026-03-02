@@ -8,7 +8,7 @@ from src.data_fetcher import fetch_all_data, preprocess_data
 from src.model import GoldForecastModel, XGBoostForecaster, generate_insights
 from src.alerter import format_alert_message
 from src.charting import generate_forecast_chart
-from src.sentiment import analyze_gold_headlines, get_detailed_news_sentiment
+from src.sentiment import analyze_headlines, get_detailed_news_sentiment
 from src.portfolio import execute_trade, get_balance, get_portfolio
 from src.correlation import calculate_correlations, get_correlation_insights
 from src.llm import generate_daily_brief
@@ -126,7 +126,7 @@ async def forecast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         
         insights = generate_insights(forecast_df, process_df, days_ahead=30, xgb_prediction=xgb_pred)
         
-        sentiment = analyze_gold_headlines()
+        sentiment = analyze_headlines(ticker)
         insights['sentiment_label'] = sentiment['label']
         insights['sentiment_score'] = sentiment['score']
         insights['sentiment_count'] = sentiment['article_count']
@@ -146,16 +146,20 @@ async def forecast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text(f"❌ An error occurred during forecasting: {str(e)}")
 
 async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Fetch the latest news and detailed sentiment."""
-    await update.message.reply_text("📰 Fetching latest Gold news and analyzing sentiment...")
+    """Fetch the latest news and detailed sentiment. Usage: /news [ticker]"""
+    ticker = "GC=F"
+    if context.args:
+        ticker = context.args[0].upper()
+        
+    await update.message.reply_text(f"📰 Fetching latest news and analyzing sentiment for {ticker}...")
     try:
-        sentiment_data = get_detailed_news_sentiment(limit=5)
+        sentiment_data = get_detailed_news_sentiment(ticker=ticker, limit=5)
         
         if sentiment_data['article_count'] == 0:
-            await update.message.reply_text("❌ No recent news found for Gold.")
+            await update.message.reply_text(f"❌ No recent news found for {ticker}.")
             return
             
-        msg = f"📰 *Latest Gold News Sentiment* 📰\n\n"
+        msg = f"📰 *Latest News Sentiment for {ticker}* 📰\n\n"
         msg += f"📊 *Overall Sentiment:* {sentiment_data['overall_label']} (Score: {sentiment_data['overall_score']:.2f})\n\n"
         
         for idx, article in enumerate(sentiment_data['articles'], 1):
@@ -311,7 +315,7 @@ async def brief_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         current_price = insights['current_price']
         
         # Get Sentiment
-        sentiment = analyze_gold_headlines() if ticker == "GC=F" else {"label": "N/A", "score": 0.0, "article_count": 0}
+        sentiment = analyze_headlines(ticker)
         
         # Get Correlations
         correlations = calculate_correlations(process_df, primary_col='y')
