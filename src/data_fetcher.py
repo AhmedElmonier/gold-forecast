@@ -5,17 +5,17 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def fetch_all_data(period: str = "5y") -> pd.DataFrame:
+def fetch_all_data(primary_ticker: str = "GC=F", period: str = "5y") -> pd.DataFrame:
     """
-    Fetches historical data for Gold futures, US Dollar Index, 10Y Treasury Yield, and S&P 500.
+    Fetches historical data for the primary asset (e.g., Gold futures, Silver), 
+    US Dollar Index, 10Y Treasury Yield, and S&P 500.
     Merges them into a single DataFrame.
     """
-    logger.info(f"Fetching Gold, USD Index (DX-Y.NYB), 10Y Yield (^TNX), and S&P 500 (^GSPC) for {period}...")
+    logger.info(f"Fetching {primary_ticker}, USD Index (DX-Y.NYB), 10Y Yield (^TNX), and S&P 500 (^GSPC) for {period}...")
     try:
         # Download all tickers
-        tickers = ["GC=F", "DX-Y.NYB", "^TNX", "^GSPC"]
+        tickers = [primary_ticker, "DX-Y.NYB", "^TNX", "^GSPC"]
         
-        # Download individually to handle potential yfinance grouped dataframe issues easily
         dfs = []
         for ticker in tickers:
             df_ticker = yf.download(ticker, period=period, progress=False)
@@ -29,8 +29,8 @@ def fetch_all_data(period: str = "5y") -> pd.DataFrame:
             else:
                 close_series = df_ticker['Close']
                 
-            name_map = {"GC=F": "Close", "DX-Y.NYB": "USD_Index", "^TNX": "Treasury_Yield", "^GSPC": "SP500"}
-            close_series.name = name_map[ticker]
+            name_map = {primary_ticker: "Close", "DX-Y.NYB": "USD_Index", "^TNX": "Treasury_Yield", "^GSPC": "SP500"}
+            close_series.name = name_map.get(ticker, "Close")
             dfs.append(close_series)
             
         if not dfs:
@@ -41,7 +41,7 @@ def fetch_all_data(period: str = "5y") -> pd.DataFrame:
         
         # Forward fill any missing days (e.g. if one market was closed but another was open)
         merged_df.ffill(inplace=True)
-        # Drop rows where Gold was completely unavailable
+        # Drop rows where primary asset was completely unavailable
         if 'Close' in merged_df.columns:
             merged_df.dropna(subset=['Close'], inplace=True)
             

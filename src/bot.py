@@ -9,6 +9,9 @@ from src.model import GoldForecastModel, XGBoostForecaster, generate_insights
 from src.alerter import format_alert_message
 from src.charting import generate_forecast_chart
 from src.sentiment import analyze_gold_headlines, get_detailed_news_sentiment
+from src.portfolio import execute_trade, get_balance, get_portfolio
+from src.correlation import calculate_correlations, get_correlation_insights
+from src.llm import generate_daily_brief
 
 # Enable logging
 logging.basicConfig(
@@ -31,16 +34,22 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "🔮 `/forecast` - Run a full AI simulation to predict the price 30 days into the future (takes ~15 seconds).\n"
         "📰 `/news` - Get the latest Gold headlines with individual FinBERT sentiment analysis.\n"
         "📊 `/stats` - View historical backtest performance of the trading strategy.\n"
+        "📝 `/brief` - Read an AI-generated daily market summary.\n"
+        "💼 `/buy`, `/sell`, `/portfolio` - Paper trading commands.\n"
     )
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
 
 async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Fetch the latest price and indicators instantly without running the Prophet model."""
-    await update.message.reply_text("⏳ Fetching real-time market data... Please wait.")
+    ticker = "GC=F"
+    if context.args:
+        ticker = context.args[0].upper()
+        
+    await update.message.reply_text(f"⏳ Fetching real-time market data for {ticker}... Please wait.")
     try:
-        raw_df = fetch_all_data(period="5y")
+        raw_df = fetch_all_data(primary_ticker=ticker, period="5y")
         if raw_df.empty:
-            await update.message.reply_text("❌ Failed to fetch data. Yahoo Finance might be down.")
+            await update.message.reply_text(f"❌ Failed to fetch data for {ticker}. Yahoo Finance might be down or the ticker is invalid.")
             return
             
         process_df = preprocess_data(raw_df)
@@ -70,14 +79,19 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             tech_trend = "CONSOLIDATING ➖"
             action = "WAIT 🟡"
             
-        sentiment = analyze_gold_headlines()
+        sentiment = analyze_gold_headlines() if ticker == "GC=F" else {"label": "N/A", "score": 0.0}
             
-        msg = f"🔥 *Real-Time Trading Signals* 🔥\n\n"
+        msg = f"🔥 *Real-Time Trading Signals for {ticker}* 🔥\n\n"
         msg += f"💵 *Current Price:* ${current_price:.2f}\n\n"
         msg += f"• *Action:* {action}\n"
         msg += f"• *Trend:* {tech_trend}\n"
         msg += f"• *Momentum (RSI):* {rsi_signal} (Value: {rsi_14:.2f})\n"
-        msg += f"• *News Sentiment:* {sentiment['label']} (Score: {sentiment['score']:.2f})\n\n"
+        
+        if ticker == "GC=F":
+            msg += f"• *News Sentiment:* {sentiment['label']} (Score: {sentiment['score']:.2f})\n\n"
+        else:
+            msg += "\n"
+            
         msg += f"📉 *20-Day SMA:* ${sma_20:.2f} | *50-Day SMA:* ${sma_50:.2f}\n"
 
         await update.message.reply_text(msg, parse_mode="Markdown")
@@ -88,12 +102,16 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def forecast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Run the full Prophet pipeline, generate a chart, and send it back."""
-    await update.message.reply_text("🤖 Initializing Prophet AI Model. Fetching 5 years of historical data and building future projections. This will take roughly 15-20 seconds...")
+    ticker = "GC=F"
+    if context.args:
+        ticker = context.args[0].upper()
+        
+    await update.message.reply_text(f"🤖 Initializing Prophet AI Model for {ticker}. Fetching 5 years of historical data and building future projections. This will take roughly 15-20 seconds...")
     
     try:
-        raw_df = fetch_all_data(period="5y")
+        raw_df = fetch_all_data(primary_ticker=ticker, period="5y")
         if raw_df.empty:
-            await update.message.reply_text("❌ Failed to fetch data.")
+            await update.message.reply_text(f"❌ Failed to fetch data for {ticker}.")
             return
             
         process_df = preprocess_data(raw_df)
@@ -162,6 +180,157 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logger.error(f"Error in /stats command: {e}")
         await update.message.reply_text(f"❌ An error occurred while running backtest: {str(e)}")
 
+async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Execute a virtual buy trade. Usage: /buy <quantity> [ticker]"""
+    if not context.args:
+        await update.message.reply_text("❌ Please specify a quantity. Usage: `/buy <quantity> [ticker]`", parse_mode="Markdown")
+        return
+        
+    try:
+        quantity = float(context.args[0])
+        ticker = context.args[1].upper() if len(context.args) > 1 else "GC=F"
+        user_id = update.effective_user.id
+        
+        # Fetch current price
+        raw_df = fetch_all_data(primary_ticker=ticker, period="1d")
+        if raw_df.empty:
+            await update.message.reply_text(f"❌ Failed to fetch current price for {ticker}.")
+            return
+            
+        current_price = float(raw_df['Close'].iloc[-1])
+        
+        success, msg = execute_trade(user_id, ticker, quantity, "BUY", current_price)
+        await update.message.reply_text(msg)
+        
+    except ValueError:
+        await update.message.reply_text("❌ Invalid quantity. Please enter a number.")
+    except Exception as e:
+        logger.error(f"Error in /buy command: {e}")
+        await update.message.reply_text(f"❌ An error occurred: {str(e)}")
+
+async def sell_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Execute a virtual sell trade. Usage: /sell <quantity> [ticker]"""
+    if not context.args:
+        await update.message.reply_text("❌ Please specify a quantity. Usage: `/sell <quantity> [ticker]`", parse_mode="Markdown")
+        return
+        
+    try:
+        quantity = float(context.args[0])
+        ticker = context.args[1].upper() if len(context.args) > 1 else "GC=F"
+        user_id = update.effective_user.id
+        
+        # Fetch current price
+        raw_df = fetch_all_data(primary_ticker=ticker, period="1d")
+        if raw_df.empty:
+            await update.message.reply_text(f"❌ Failed to fetch current price for {ticker}.")
+            return
+            
+        current_price = float(raw_df['Close'].iloc[-1])
+        
+        success, msg = execute_trade(user_id, ticker, quantity, "SELL", current_price)
+        await update.message.reply_text(msg)
+        
+    except ValueError:
+        await update.message.reply_text("❌ Invalid quantity. Please enter a number.")
+    except Exception as e:
+        logger.error(f"Error in /sell command: {e}")
+        await update.message.reply_text(f"❌ An error occurred: {str(e)}")
+
+async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show the user's virtual portfolio."""
+    user_id = update.effective_user.id
+    balance = get_balance(user_id)
+    holdings = get_portfolio(user_id)
+    
+    msg = f"💼 *Virtual Portfolio* 💼\n\n"
+    msg += f"💵 *Available Cash:* ${balance:,.2f}\n\n"
+    
+    if not holdings:
+        msg += "You don't own any assets yet. Use `/buy <qty> [ticker]` to start trading!"
+        await update.message.reply_text(msg, parse_mode="Markdown")
+        return
+        
+    msg += "*Current Holdings:*\n"
+    total_value = balance
+    
+    # Send an initial message since fetching prices might take a second
+    status_message = await update.message.reply_text("⏳ Calculating portfolio value...")
+    
+    for ticker, data in holdings.items():
+        qty = data['quantity']
+        avg_price = data['avg_price']
+        
+        # Fetch current price
+        raw_df = fetch_all_data(primary_ticker=ticker, period="1d")
+        if not raw_df.empty:
+            current_price = float(raw_df['Close'].iloc[-1])
+            value = qty * current_price
+            total_value += value
+            
+            pl_per_unit = current_price - avg_price
+            pl_total = pl_per_unit * qty
+            pl_pct = (pl_per_unit / avg_price) * 100
+            
+            emoji = "🟢" if pl_total >= 0 else "🔴"
+            msg += f"• *{ticker}*: {qty} units\n"
+            msg += f"  Value: ${value:,.2f}\n"
+            msg += f"  P/L: {emoji} ${pl_total:,.2f} ({pl_pct:.2f}%)\n\n"
+        else:
+            msg += f"• *{ticker}*: {qty} units (Could not fetch current price)\n\n"
+            
+    msg += f"💰 *Total Account Value:* ${total_value:,.2f}"
+    
+    await status_message.edit_text(msg, parse_mode="Markdown")
+
+async def brief_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Generate a daily market brief using an LLM."""
+    ticker = "GC=F"
+    if context.args:
+        ticker = context.args[0].upper()
+        
+    await update.message.reply_text(f"🤖 Analyzing market conditions for {ticker} and generating a brief... This may take up to 30 seconds.")
+    
+    try:
+        raw_df = fetch_all_data(primary_ticker=ticker, period="5y")
+        if raw_df.empty:
+            await update.message.reply_text(f"❌ Failed to fetch data for {ticker}.")
+            return
+            
+        process_df = preprocess_data(raw_df)
+        
+        # Get forecast and technicals
+        model = GoldForecastModel()
+        model.fit(process_df)
+        forecast_df = model.predict(process_df, days_ahead=30)
+        
+        xgb_model = XGBoostForecaster()
+        xgb_model.fit(process_df, days_ahead=30)
+        xgb_pred = xgb_model.predict_current(process_df)
+        
+        insights = generate_insights(forecast_df, process_df, days_ahead=30, xgb_prediction=xgb_pred)
+        current_price = insights['current_price']
+        
+        # Get Sentiment
+        sentiment = analyze_gold_headlines() if ticker == "GC=F" else {"label": "N/A", "score": 0.0, "article_count": 0}
+        
+        # Get Correlations
+        correlations = calculate_correlations(process_df, primary_col='y')
+        
+        # Generate LLM Brief
+        brief_text = generate_daily_brief(
+            ticker=ticker,
+            current_price=current_price,
+            forecast_data=insights,
+            sentiment_data=sentiment,
+            correlation_data=correlations
+        )
+        
+        await update.message.reply_text(brief_text, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Error in /brief command: {e}")
+        await update.message.reply_text(f"❌ An error occurred during brief generation: {str(e)}")
+
 def main() -> None:
     """Start the bot."""
     if not TELEGRAM_BOT_TOKEN:
@@ -177,6 +346,10 @@ def main() -> None:
     application.add_handler(CommandHandler("forecast", forecast_command))
     application.add_handler(CommandHandler("news", news_command))
     application.add_handler(CommandHandler("stats", stats_command))
+    application.add_handler(CommandHandler("buy", buy_command))
+    application.add_handler(CommandHandler("sell", sell_command))
+    application.add_handler(CommandHandler("portfolio", portfolio_command))
+    application.add_handler(CommandHandler("brief", brief_command))
 
     # Run the bot until the user presses Ctrl-C
     logger.info("Bot is polling... Listening for commands.")

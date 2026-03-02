@@ -18,16 +18,17 @@ def format_alert_message(insights: dict) -> str:
     msg = f"🏆 *Gold Price Forecast & Insights ({insights['days_ahead']} days)* 🏆\n\n"
     
     msg += f"🔥 *Trading Signals (Live)* 🔥\n"
-    msg += f"• *Action:* {insights['action']}\n"
-    msg += f"• *Trend:* {insights['tech_trend']}\n"
-    msg += f"• *Momentum (RSI):* {insights['rsi_signal']}\n"
-    if 'sentiment_label' in insights:
-        msg += f"• *News Sentiment:* {insights['sentiment_label']} (Score: {insights['sentiment_score']:.2f} based on {insights['sentiment_count']} articles)\n\n"
+    msg += f"• *Action:* {insights.get('action', 'N/A')}\n"
+    msg += f"• *Trend:* {insights.get('tech_trend', 'N/A')}\n"
+    msg += f"• *Momentum (RSI):* {insights.get('rsi_signal', 'N/A')}\n"
+    
+    if 'sentiment_label' in insights and insights['sentiment_label'] != 'N/A':
+        msg += f"• *News Sentiment:* {insights.get('sentiment_label')} (Score: {insights.get('sentiment_score', 0):.2f} based on {insights.get('sentiment_count', 0)} articles)\n\n"
     else:
         msg += "\n"
     
-    msg += f"💵 *Current Price:* ${insights['current_price']:.2f}\n"
-    msg += f"📉 *20-Day SMA:* ${insights['sma_20']:.2f} | *50-Day SMA:* ${insights['sma_50']:.2f}\n"
+    msg += f"💵 *Current Price:* ${insights.get('current_price', 0):.2f}\n"
+    msg += f"📉 *20-Day SMA:* ${insights.get('sma_20', 0):.2f} | *50-Day SMA:* ${insights.get('sma_50', 0):.2f}\n"
     msg += f"🌡️ *14-Day RSI:* {insights['rsi_14']:.2f}\n\n"
     
     msg += f"🔮 *Future Prophet Forecast*\n"
