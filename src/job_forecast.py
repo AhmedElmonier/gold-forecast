@@ -47,7 +47,7 @@ def run_scheduled_job():
     insights = generate_insights(forecast_df, process_df, 30, xgb_prediction)
     
     logger.info("Step 3.5: Analyzing news sentiment...")
-    sentiment = analyze_gold_headlines()
+    sentiment = analyze_headlines()
     insights['sentiment_label'] = sentiment['label']
     insights['sentiment_score'] = sentiment['score']
     insights['sentiment_count'] = sentiment['article_count']

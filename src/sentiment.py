@@ -182,5 +182,5 @@ def get_detailed_news_sentiment(ticker: str = "GC=F", limit: int = 5) -> dict:
         return {"overall_score": 0.0, "overall_label": "Error", "article_count": 0, "articles": []}
 
 if __name__ == "__main__":
-    result = analyze_gold_headlines()
+    result = analyze_headlines()
     print(f"Sentiment Result: {result}")
