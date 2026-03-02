@@ -79,7 +79,7 @@ async def price_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             tech_trend = "CONSOLIDATING ➖"
             action = "WAIT 🟡"
             
-        sentiment = analyze_gold_headlines() if ticker == "GC=F" else {"label": "N/A", "score": 0.0}
+        sentiment = analyze_headlines(ticker)
             
         msg = f"🔥 *Real-Time Trading Signals for {ticker}* 🔥\n\n"
         msg += f"💵 *Current Price:* ${current_price:.2f}\n\n"
