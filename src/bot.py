@@ -8,7 +8,7 @@ from src.data_fetcher import fetch_all_data, preprocess_data
 from src.model import GoldForecastModel, generate_insights
 from src.alerter import format_alert_message
 from src.charting import generate_forecast_chart
-from src.sentiment import analyze_gold_headlines
+from src.sentiment import analyze_gold_headlines, get_detailed_news_sentiment
 
 # Enable logging
 logging.basicConfig(
@@ -29,6 +29,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "Here is what I can do:\n"
         "📉 `/price` - Get the live price, real-time technical indicators, and Buy/Sell signals.\n"
         "🔮 `/forecast` - Run a full AI simulation to predict the price 30 days into the future (takes ~15 seconds).\n"
+        "📰 `/news` - Get the latest Gold headlines with individual sentiment analysis.\n"
     )
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
 
@@ -121,6 +122,30 @@ async def forecast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         logger.error(f"Error in /forecast command: {e}")
         await update.message.reply_text(f"❌ An error occurred during forecasting: {str(e)}")
 
+async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Fetch the latest news and detailed sentiment."""
+    await update.message.reply_text("📰 Fetching latest Gold news and analyzing sentiment...")
+    try:
+        sentiment_data = get_detailed_news_sentiment(limit=5)
+        
+        if sentiment_data['article_count'] == 0:
+            await update.message.reply_text("❌ No recent news found for Gold.")
+            return
+            
+        msg = f"📰 *Latest Gold News Sentiment* 📰\n\n"
+        msg += f"📊 *Overall Sentiment:* {sentiment_data['overall_label']} (Score: {sentiment_data['overall_score']:.2f})\n\n"
+        
+        for idx, article in enumerate(sentiment_data['articles'], 1):
+            msg += f"*{idx}. {article['title']}*\n"
+            msg += f"• *Sentiment:* {article['label']} (Score: {article['score']:.2f})\n"
+            msg += f"• [Read Article]({article['link']})\n\n"
+            
+        await update.message.reply_text(msg, parse_mode="Markdown", disable_web_page_preview=True)
+
+    except Exception as e:
+        logger.error(f"Error in /news command: {e}")
+        await update.message.reply_text(f"❌ An error occurred: {str(e)}")
+
 def main() -> None:
     """Start the bot."""
     if not TELEGRAM_BOT_TOKEN:
@@ -134,6 +159,7 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("price", price_command))
     application.add_handler(CommandHandler("forecast", forecast_command))
+    application.add_handler(CommandHandler("news", news_command))
 
     # Run the bot until the user presses Ctrl-C
     logger.info("Bot is polling... Listening for commands.")
