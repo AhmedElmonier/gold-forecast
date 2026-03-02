@@ -5,7 +5,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from dotenv import load_dotenv
 
 from src.data_fetcher import fetch_all_data, preprocess_data
-from src.model import GoldForecastModel, generate_insights
+from src.model import GoldForecastModel, XGBoostForecaster, generate_insights
 from src.alerter import format_alert_message
 from src.charting import generate_forecast_chart
 from src.sentiment import analyze_gold_headlines, get_detailed_news_sentiment
@@ -29,7 +29,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "Here is what I can do:\n"
         "📉 `/price` - Get the live price, real-time technical indicators, and Buy/Sell signals.\n"
         "🔮 `/forecast` - Run a full AI simulation to predict the price 30 days into the future (takes ~15 seconds).\n"
-        "📰 `/news` - Get the latest Gold headlines with individual sentiment analysis.\n"
+        "📰 `/news` - Get the latest Gold headlines with individual FinBERT sentiment analysis.\n"
+        "📊 `/stats` - View historical backtest performance of the trading strategy.\n"
     )
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
 
@@ -99,9 +100,13 @@ async def forecast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         
         model = GoldForecastModel()
         model.fit(process_df)
-        
         forecast_df = model.predict(process_df, days_ahead=30)
-        insights = generate_insights(forecast_df, process_df, days_ahead=30)
+        
+        xgb_model = XGBoostForecaster()
+        xgb_model.fit(process_df, days_ahead=30)
+        xgb_pred = xgb_model.predict_current(process_df)
+        
+        insights = generate_insights(forecast_df, process_df, days_ahead=30, xgb_prediction=xgb_pred)
         
         sentiment = analyze_gold_headlines()
         insights['sentiment_label'] = sentiment['label']
@@ -146,6 +151,17 @@ async def news_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         logger.error(f"Error in /news command: {e}")
         await update.message.reply_text(f"❌ An error occurred: {str(e)}")
 
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Run the backtest and return historical performance metrics."""
+    await update.message.reply_text("📊 Running historical backtest simulation. This might take a few seconds...")
+    try:
+        from src.backtest import run_backtest
+        stats_msg = run_backtest()
+        await update.message.reply_text(stats_msg, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Error in /stats command: {e}")
+        await update.message.reply_text(f"❌ An error occurred while running backtest: {str(e)}")
+
 def main() -> None:
     """Start the bot."""
     if not TELEGRAM_BOT_TOKEN:
@@ -160,6 +176,7 @@ def main() -> None:
     application.add_handler(CommandHandler("price", price_command))
     application.add_handler(CommandHandler("forecast", forecast_command))
     application.add_handler(CommandHandler("news", news_command))
+    application.add_handler(CommandHandler("stats", stats_command))
 
     # Run the bot until the user presses Ctrl-C
     logger.info("Bot is polling... Listening for commands.")

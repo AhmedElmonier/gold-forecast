@@ -1,6 +1,7 @@
 import pandas as pd
 from prophet import Prophet
 from prophet.diagnostics import cross_validation, performance_metrics
+import xgboost as xgb
 import logging
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,7 @@ class GoldForecastModel:
         )
         self.model.add_regressor('USD_Index')
         self.model.add_regressor('Treasury_Yield')
+        self.model.add_regressor('SP500')
         self.is_fitted = False
         
     def fit(self, df: pd.DataFrame):
@@ -50,20 +52,22 @@ class GoldForecastModel:
         logger.info(f"Generating forecast for {days_ahead} days ahead...")
         future = self.model.make_future_dataframe(periods=days_ahead)
         
-        # Prophet requires future values for regressors. 
-        # For our 30-day forecast, we will naively assume the USD Index and Treasury Yield
+        # For our 30-day forecast, we will naively assume the macro variables 
         # remain exactly what they were on the last available day of historical data.
         last_usd = historical_df.iloc[-1]['USD_Index']
         last_tnx = historical_df.iloc[-1]['Treasury_Yield']
+        last_sp500 = historical_df.iloc[-1]['SP500']
         
         future['USD_Index'] = last_usd
         future['Treasury_Yield'] = last_tnx
+        future['SP500'] = last_sp500
         
         # Override the historical part of the future dataframe with actual historical regressor values
         # so the model fits the past correctly when plotting
-        future_merged = pd.merge(future, historical_df[['ds', 'USD_Index', 'Treasury_Yield']], on='ds', how='left')
+        future_merged = pd.merge(future, historical_df[['ds', 'USD_Index', 'Treasury_Yield', 'SP500']], on='ds', how='left')
         future['USD_Index'] = future_merged['USD_Index_y'].fillna(last_usd)
         future['Treasury_Yield'] = future_merged['Treasury_Yield_y'].fillna(last_tnx)
+        future['SP500'] = future_merged['SP500_y'].fillna(last_sp500)
 
         forecast = self.model.predict(future)
         return forecast
@@ -93,14 +97,59 @@ class GoldForecastModel:
         
         return df_p
 
-def generate_insights(forecast: pd.DataFrame, historical_data: pd.DataFrame, days_ahead: int) -> dict:
+class XGBoostForecaster:
+    def __init__(self):
+        """
+        Initializes the XGBoost model to predict n-days ahead using lagged features.
+        """
+        self.model = xgb.XGBRegressor(
+            n_estimators=100,
+            learning_rate=0.05,
+            max_depth=5,
+            random_state=42
+        )
+        self.is_fitted = False
+        # The technical indicators and macro regressors to use as features
+        self.features = ['SMA_20', 'SMA_50', 'RSI_14', 'USD_Index', 'Treasury_Yield', 'SP500']
+        
+    def fit(self, df: pd.DataFrame, days_ahead: int = 30):
+        """
+        Fits the XGBoost model to predict the price `days_ahead` into the future.
+        """
+        logger.info(f"Fitting XGBoost model to predict {days_ahead} days ahead...")
+        train_df = df.copy()
+        # Create target variable: the price 'days_ahead' in the future
+        train_df['target'] = train_df['y'].shift(-days_ahead)
+        train_df.dropna(inplace=True)
+        
+        X = train_df[self.features]
+        y = train_df['target']
+        
+        self.model.fit(X, y)
+        self.is_fitted = True
+        logger.info("XGBoost model fitting complete.")
+        
+    def predict_current(self, df: pd.DataFrame) -> float:
+        """
+        Predicts the future price based on the very latest available data row.
+        """
+        if not self.is_fitted:
+            raise ValueError("XGBoost model must be fitted before predicting.")
+            
+        latest_features = df.iloc[-1:][self.features]
+        pred = self.model.predict(latest_features)
+        return float(pred[0])
+
+def generate_insights(forecast: pd.DataFrame, historical_data: pd.DataFrame, days_ahead: int, xgb_prediction: float = None) -> dict:
     """
     Generates actionable insights based on the forecast and current technical indicators.
+    Ensembles Prophet and XGBoost predictions if both are available.
     
     Args:
         forecast (pd.DataFrame): Forecast dataframe from Prophet.
         historical_data (pd.DataFrame): The preprocessed historical data with indicators.
         days_ahead (int): The forecast horizon in days.
+        xgb_prediction (float): The prediction from the XGBoost model.
         
     Returns:
         dict: A dictionary containing forecasted values, a trend insight, and explicit trading signals.
@@ -113,9 +162,17 @@ def generate_insights(forecast: pd.DataFrame, historical_data: pd.DataFrame, day
     
     # Get the row corresponding to the final predicted day
     future_pred = forecast.iloc[-1]
-    predicted_price = future_pred['yhat']
+    prophet_price = future_pred['yhat']
     lower_bound = future_pred['yhat_lower']
     upper_bound = future_pred['yhat_upper']
+    
+    # Ensemble Logic: Average Prophet and XGBoost if XGBoost is provided
+    if xgb_prediction is not None:
+        ensemble_price = (prophet_price + xgb_prediction) / 2
+        predicted_price = ensemble_price
+        logger.info(f"Ensemble Forecast: Prophet=${prophet_price:.2f}, XGBoost=${xgb_prediction:.2f} -> Average=${predicted_price:.2f}")
+    else:
+        predicted_price = prophet_price
     
     price_diff = predicted_price - current_price
     pct_change = (price_diff / current_price) * 100

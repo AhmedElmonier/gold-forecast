@@ -7,7 +7,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
 from src.data_fetcher import fetch_all_data, preprocess_data
-from src.model import GoldForecastModel, generate_insights
+from src.model import GoldForecastModel, XGBoostForecaster, generate_insights
 from src.alerter import format_alert_message, send_telegram_alert
 from src.charting import generate_forecast_chart
 from src.sentiment import analyze_gold_headlines
@@ -33,11 +33,18 @@ def run_scheduled_job():
     model = GoldForecastModel()
     model.fit(process_df)
     
-    logger.info("Generating forecast...")
+    logger.info("Generating Prophet forecast...")
     forecast_df = model.predict(process_df, days_ahead=30)
     
+    logger.info("Step 2.5: Training XGBoost model...")
+    xgb_model = XGBoostForecaster()
+    xgb_model.fit(process_df, days_ahead=30)
+    
+    logger.info("Generating XGBoost prediction...")
+    xgb_prediction = xgb_model.predict_current(process_df)
+    
     logger.info("Step 3: Generating insights...")
-    insights = generate_insights(forecast_df, process_df, 30)
+    insights = generate_insights(forecast_df, process_df, 30, xgb_prediction)
     
     logger.info("Step 3.5: Analyzing news sentiment...")
     sentiment = analyze_gold_headlines()

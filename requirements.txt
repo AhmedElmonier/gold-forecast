@@ -10,3 +10,6 @@ seaborn
 nltk
 python-telegram-bot
 plotly
+transformers
+torch
+xgboost
