@@ -11,6 +11,7 @@ from src.model import GoldForecastModel, XGBoostForecaster, generate_insights
 from src.alerter import format_alert_message, send_telegram_alert
 from src.charting import generate_forecast_chart
 from src.sentiment import analyze_headlines
+from src.forecast_history import save_forecast, reconcile_forecasts
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -20,7 +21,10 @@ def run_scheduled_job():
     load_dotenv()
     
     logger.info("=== Starting Automated Gold Forecasting Job ===")
-    
+
+    logger.info("Step 0: Reconciling past forecasts with actual prices...")
+    reconcile_forecasts()
+
     logger.info("Step 1: Fetching data...")
     raw_df = fetch_all_data(period="5y")
     if raw_df.empty:
@@ -42,9 +46,21 @@ def run_scheduled_job():
     
     logger.info("Generating XGBoost prediction...")
     xgb_prediction = xgb_model.predict_current(process_df)
-    
+
     logger.info("Step 3: Generating insights...")
     insights = generate_insights(forecast_df, process_df, 30, xgb_prediction)
+
+    logger.info("Step 3.2: Saving forecast to history...")
+    prophet_price = float(forecast_df.iloc[-1]['yhat'])
+    current_price = float(process_df.iloc[-1]['y'])
+    save_forecast(
+        ticker="GC=F",
+        days_ahead=30,
+        predicted_price=insights['predicted_price'],
+        price_at_forecast=current_price,
+        prophet_price=prophet_price,
+        xgb_price=xgb_prediction,
+    )
     
     logger.info("Step 3.5: Analyzing news sentiment...")
     sentiment = analyze_headlines()

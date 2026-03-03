@@ -12,6 +12,7 @@ from src.sentiment import analyze_headlines, get_detailed_news_sentiment
 from src.portfolio import execute_trade, get_balance, get_portfolio
 from src.correlation import calculate_correlations, get_correlation_insights
 from src.llm import generate_daily_brief
+from src.forecast_history import get_accuracy_stats
 
 # Enable logging
 logging.basicConfig(
@@ -34,6 +35,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "🔮 `/forecast` - Run a full AI simulation to predict the price 30 days into the future (takes ~15 seconds).\n"
         "📰 `/news` - Get the latest Gold headlines with individual FinBERT sentiment analysis.\n"
         "📊 `/stats` - View historical backtest performance of the trading strategy.\n"
+        "🎯 `/accuracy` - View AI forecast accuracy vs real prices (MAE, MAPE, direction hit-rate).\n"
         "📝 `/brief` - Read an AI-generated daily market summary.\n"
         "💼 `/buy`, `/sell`, `/portfolio` - Paper trading commands.\n"
     )
@@ -335,6 +337,67 @@ async def brief_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         logger.error(f"Error in /brief command: {e}")
         await update.message.reply_text(f"❌ An error occurred during brief generation: {str(e)}")
 
+async def accuracy_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show AI forecast accuracy stats vs real prices. Usage: /accuracy [ticker]"""
+    ticker = "GC=F"
+    if context.args:
+        ticker = context.args[0].upper()
+
+    await update.message.reply_text(f"🎯 Fetching forecast accuracy stats for {ticker}...")
+    try:
+        stats = get_accuracy_stats(ticker=ticker, limit=30)
+
+        total = stats['total_forecasts']
+        reconciled = stats['reconciled_count']
+
+        msg = f"🎯 *Forecast Accuracy Report ({ticker})* 🎯\n\n"
+        msg += f"📋 *Total Forecasts Logged:* {total}\n"
+        msg += f"✅ *Resolved Forecasts:* {reconciled}\n"
+        msg += f"⏳ *Pending (target date not yet reached):* {total - reconciled}\n\n"
+
+        if reconciled == 0:
+            msg += "_No forecasts have reached their target date yet. Check back in 30 days!_\n"
+            msg += "\n💡 Tip: Every time the scheduled job runs, the bot saves a prediction.\n"
+            msg += "After 30 days, the actual price is automatically fetched and accuracy is computed."
+        else:
+            mae = stats['mae']
+            mape = stats['mape']
+            hit_rate = stats['direction_hit_rate']
+
+            # Grade the model
+            if mape < 2.0:
+                grade = "🏆 Excellent"
+            elif mape < 5.0:
+                grade = "✅ Good"
+            elif mape < 10.0:
+                grade = "🟡 Fair"
+            else:
+                grade = "🔴 Needs Improvement"
+
+            msg += f"📈 *Performance Metrics* (last {reconciled} forecasts)\n"
+            msg += f"• *Mean Absolute Error (MAE):* ${mae:.2f}\n"
+            msg += f"• *Mean Absolute % Error (MAPE):* {mape:.2f}%\n"
+            msg += f"• *Direction Hit-Rate:* {hit_rate:.1f}% (correctly predicted Up/Down)\n"
+            msg += f"• *Model Grade:* {grade}\n\n"
+
+            recent = stats['recent_forecasts']
+            if recent:
+                msg += "🕐 *Last 5 Resolved Forecasts:*\n"
+                for r in recent:
+                    direction_icon = "✅" if r['direction_correct'] else "❌"
+                    msg += (
+                        f"• {r['forecast_date']} → {r['target_date']}: "
+                        f"predicted ${r['predicted_price']:.0f}, "
+                        f"actual ${r['actual_price']:.0f} "
+                        f"({r['pct_error']:.1f}% err) {direction_icon}\n"
+                    )
+
+        await update.message.reply_text(msg, parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Error in /accuracy command: {e}")
+        await update.message.reply_text(f"❌ An error occurred: {str(e)}")
+
 def main() -> None:
     """Start the bot."""
     if not TELEGRAM_BOT_TOKEN:
@@ -354,6 +417,7 @@ def main() -> None:
     application.add_handler(CommandHandler("sell", sell_command))
     application.add_handler(CommandHandler("portfolio", portfolio_command))
     application.add_handler(CommandHandler("brief", brief_command))
+    application.add_handler(CommandHandler("accuracy", accuracy_command))
 
     # Run the bot until the user presses Ctrl-C
     logger.info("Bot is polling... Listening for commands.")
